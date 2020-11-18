@@ -1,3 +1,4 @@
 <resources>
-    <string name="app_name">AirdotsDoubleTap</string>
+    <string name="app_name">Mi AirDots Double Tap</string>
+    <string name="info">How to use\n1. The device will ask you with which app to complete the action\n2. Select always with <b>\"%s\"</b></string>
 </resources>
