@@ -11,7 +11,7 @@
         android:layout_width="0dp"
         android:layout_height="120dp"
         android:layout_marginTop="24dp"
-        app:batteryMeterChargeLevel="20"
+      
         app:batteryMeterChargingColor="#4caf50"
         app:batteryMeterColor="#0277bd"
         app:batteryMeterCriticalChargeLevel="10"
