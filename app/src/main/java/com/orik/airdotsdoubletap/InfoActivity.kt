@@ -1,12 +1,9 @@
 package com.orik.airdotsdoubletap
 
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothProfile
+import android.bluetooth.*
 import android.content.*
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import android.view.Menu
 import android.view.MenuInflater
 import android.view.MenuItem
@@ -19,20 +16,31 @@ import androidx.lifecycle.asLiveData
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.snackbar.BaseTransientBottomBar.LENGTH_LONG
 import com.google.android.material.snackbar.Snackbar
-import com.icebergteam.timberjava.LineNumberDebugTree
 import com.icebergteam.timberjava.Timber
 import com.orik.airdotsdoubletap.AirDropBroadcastReceiver.Companion.EXTRA_BATTERY_LEVEL_VALUE
+import com.orik.airdotsdoubletap.batterylevel.BluetoothBatteryLevel
+import com.orik.airdotsdoubletap.batterylevel.OnChangeCheckBatteryState
+import com.orik.airdotsdoubletap.batterylevel.State
 import com.orik.airdotsdoubletap.databinding.ActivityInfoBinding
+import com.orik.airdotsdoubletap.service.NotificationService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.sendBlocking
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
+import java.util.*
 
 
 class InfoActivity : AppCompatActivity() {
     private lateinit var binding: ActivityInfoBinding
     private var currentBluetoothDevice = MutableLiveData<BluetoothDevice>()
     private lateinit var settings: Settings
+
 
     private val broadcastReceiver: BroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent) {
@@ -156,10 +164,8 @@ class InfoActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        initLogger()
         binding = ActivityInfoBinding.inflate(layoutInflater)
-        val view = binding.root
-        setContentView(view)
+        setContentView(binding.root)
         settings = Settings(this)
         binding.textView.text = (getString(
             R.string.info,
@@ -167,43 +173,32 @@ class InfoActivity : AppCompatActivity() {
         ))
     }
 
-    private fun initLogger() {
-        Timber.plant(object : LineNumberDebugTree() {
-            override fun createStackElementTag(element: StackTraceElement): String? {
-                var tag = element.className
-                val m = ANONYMOUS_CLASS.matcher(tag)
-                if (m.find()) {
-                    tag = m.replaceAll("")
-                }
-                tag = tag.substring(tag.lastIndexOf('.') + 1)
-                // Tag length limit was removed in API 24.
-                if (tag.length <= MAX_TAG_LENGTH || Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    return String.format("%s (%s)", tag, element.lineNumber)
-                }
-                val className = tag.substring(0, MAX_TAG_LENGTH).split("$").toTypedArray()[0]
-                return String.format(
-                    "(%s.kt:%s#%s",
-                    className,
-                    element.lineNumber,
-                    element.methodName
-                )
-            }
-
-            override fun wtf(tag: String, message: String) {
-                Log.wtf(tag, message)
-            }
-
-            override fun println(priority: Int, tag: String, message: String) {
-                Log.println(priority, tag, message)
-            }
-        })
+    /**
+     * Check if the service is Running
+     * @param serviceClass the class of the Service
+     *
+     * @return true if the service is running otherwise false
+     */
+    fun checkServiceRunning(serviceClass: Class<*>): Boolean {
+//        val manager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+//        for (service in manager.getRunningServices(Int.MAX_VALUE)) {
+//            Timber.e("SSSS %s", service.clientCount)
+//            if (serviceClass.name == service.service.className) {
+//                return true
+//            }
+//        }
+        return false
     }
+
 
     override fun onResume() {
         super.onResume()
         if (!isBluetoothOn) {
             Snackbar.make(binding.root, "Bluetooth is no enabled", LENGTH_LONG).show()
         }
+
+        checkServiceRunning(NotificationService::class.java)
+
         val filter = IntentFilter()
         filter.addAction(AirDropBroadcastReceiver.BLUETOOTH_DEVICE_CONNECTION_CHANGED)
         filter.addAction(AirDropBroadcastReceiver.BATTERY_LEVEL_CHANGED)
@@ -212,8 +207,14 @@ class InfoActivity : AppCompatActivity() {
 
         currentBluetoothDevice.observe(this) {
             if (it != null) {
-                binding.batteryMeterView.chargeLevel =
-                    it.batteryLevel()
+                Timber.e("DDDDDD")
+                lifecycleScope.launch {
+                    it.batteryLevel(this@InfoActivity).collect {
+                        it?.let { binding.batteryMeterView.chargeLevel = it }
+                    }
+                }
+
+
                 if (it.isConnected() != true) {
                     Snackbar.make(
                         binding.root,
@@ -231,14 +232,21 @@ class InfoActivity : AppCompatActivity() {
                 }.show()
             }
         }
-
         settings.getCachedBtDevice().asLiveData().observe(this) {
             Timber.e("DataStore: %s", it)
+            sendBroadcast(
+                Intent(
+                    this@InfoActivity,
+                    AirDropBroadcastReceiver::class.java
+                ).setAction("com.orik.airdotsdoubletap.action.REFRESH")
+            )
             when (it) {
                 is Success -> {
                     currentBluetoothDevice.postValue(it.bluetoothDevice)
                 }
-                Missing -> currentBluetoothDevice.postValue(null)
+                Missing -> {
+                    currentBluetoothDevice.postValue(null)
+                }
                 is Failure -> {
                     when (it.exception) {
                         is BluetoothEnableError -> Snackbar.make(
@@ -261,10 +269,46 @@ class InfoActivity : AppCompatActivity() {
         super.onPause()
         this.unregisterReceiver(broadcastReceiver)
     }
+
 }
+
 
 fun BluetoothDevice.isConnected() = this.javaClass.getMethod("isConnected")
     .invoke(this) as Boolean?
 
-fun BluetoothDevice.batteryLevel() =
-    this.javaClass.getMethod("getBatteryLevel").invoke(this) as Int?
+
+@ExperimentalCoroutinesApi
+fun BluetoothDevice.batteryLevel(context: Context): Flow<Int?> {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+        return flow {
+            emit(
+                this@batteryLevel.javaClass.getMethod("getBatteryLevel")
+                    .invoke(this@batteryLevel) as Int?
+            )
+        }
+    }
+
+    return callbackFlow {
+        BluetoothBatteryLevel(object : OnChangeCheckBatteryState {
+            override fun currentState(): State {
+                return State.UNKNOWN
+            }
+
+            override fun changeState(state: State) {
+
+            }
+
+            override fun onBatteryLevel(level: Int) {
+                if (level != -1) {
+                    sendBlocking(level)
+                    channel.close()
+                }
+
+            }
+
+        }).get_headset_profile(this@batteryLevel, context)
+        awaitClose { }
+    }
+}
+
+

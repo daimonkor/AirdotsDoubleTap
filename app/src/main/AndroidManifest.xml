@@ -4,8 +4,17 @@
     package="com.orik.airdotsdoubletap">
 
     <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="Manifest.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
     <application
+        android:requestLegacyExternalStorage="true"
+        android:name=".ApplicationImplement"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -13,6 +22,22 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.NoDisplay"
         tools:ignore="GoogleAppIndexingWarning">
+
+        <service
+            android:process=":NotificationService"
+            android:stopWithTask="false"
+            android:name=".service.NotificationService"
+            android:enabled="true"
+            android:exported="false"></service>
+
+        <receiver
+            android:enabled="true"
+            android:name=".service.StartReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <receiver
             android:name=".AirDropBroadcastReceiver"
             android:enabled="true"
@@ -21,6 +46,7 @@
                 <action android:name="android.bluetooth.headset.profile.action.CONNECTION_STATE_CHANGED" />
                 <action android:name="android.bluetooth.device.action.BATTERY_LEVEL_CHANGED" />
                 <action android:name="android.bluetooth.adapter.action.STATE_CHANGED" />
+                <action android:name="com.orik.airdotsdoubletap.action.REFRESH" />
             </intent-filter>
         </receiver>
 
@@ -29,6 +55,7 @@
             android:theme="@style/AppTheme">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
@@ -39,6 +66,7 @@
             android:showOnLockScreen="true">
             <intent-filter>
                 <action android:name="android.intent.action.VOICE_COMMAND" />
+
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
